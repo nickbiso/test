@@ -1,0 +1,547 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  annotations:
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "Demonstrate an AutoML
+      Tables workflow", "inputs": [{"default": "YOUR_PROJECT_HERE", "name": "gcp_project_id"},
+      {"default": "us-central1", "name": "gcp_region"}, {"default": "YOUR_DATASET_NAME",
+      "name": "dataset_display_name"}, {"default": "", "name": "api_endpoint"}, {"default":
+      "bq://aju-dev-demos.london_bikes_weather.bikes_weather", "name": "path"}, {"default":
+      "duration", "name": "target_col_name"}, {"default": "", "name": "time_col_name"},
+      {"default": "{\"end_station_id\": \"CATEGORY\", \"start_station_id\": \"CATEGORY\",
+      \"loc_cross\": \"CATEGORY\", \"bike_id\": \"CATEGORY\"}", "name": "schema_info"},
+      {"default": "1000", "name": "train_budget_milli_node_hours", "type": "Integer"},
+      {"default": "bwmodel", "name": "model_prefix"}, {"default": "bwmodel_1579017140",
+      "name": "model_display_name"}, {"default": "aju-pipelines", "name": "bucket_name"},
+      {"default": "{\"au_prc\": 0.9}", "name": "thresholds"}], "name": "AutoML Tables"}'
+  generateName: automl-tables-
+spec:
+  arguments:
+    parameters:
+    - name: gcp-project-id
+      value: YOUR_PROJECT_HERE
+    - name: gcp-region
+      value: us-central1
+    - name: dataset-display-name
+      value: YOUR_DATASET_NAME
+    - name: api-endpoint
+      value: ''
+    - name: path
+      value: bq://aju-dev-demos.london_bikes_weather.bikes_weather
+    - name: target-col-name
+      value: duration
+    - name: time-col-name
+      value: ''
+    - name: schema-info
+      value: '{"end_station_id": "CATEGORY", "start_station_id": "CATEGORY", "loc_cross":
+        "CATEGORY", "bike_id": "CATEGORY"}'
+    - name: train-budget-milli-node-hours
+      value: '1000'
+    - name: model-prefix
+      value: bwmodel
+    - name: model-display-name
+      value: bwmodel_1579017140
+    - name: bucket-name
+      value: aju-pipelines
+    - name: thresholds
+      value: '{"au_prc": 0.9}'
+  entrypoint: automl-tables
+  serviceAccountName: pipeline-runner
+  templates:
+  - container:
+      args:
+      - --gcp-project-id
+      - '{{inputs.parameters.gcp-project-id}}'
+      - --gcp-region
+      - '{{inputs.parameters.gcp-region}}'
+      - --model-display-name
+      - '{{inputs.parameters.model-display-name}}'
+      - --api-endpoint
+      - '{{inputs.parameters.api-endpoint}}'
+      - '----output-paths'
+      - /tmp/outputs/model_display_name/data
+      - /tmp/outputs/status/data
+      command:
+      - python3
+      - -u
+      - -c
+      - "from typing import NamedTuple\n\ndef automl_deploy_tables_model(\n\tgcp_project_id:\
+        \ str,\n\tgcp_region: str,\n\t# dataset_display_name: str,\n  model_display_name:\
+        \ str,\n  api_endpoint: str = None,\n) -> NamedTuple('Outputs', [('model_display_name',\
+        \ str), ('status', str)]):\n  import subprocess\n  import sys\n  subprocess.run([sys.executable,\
+        \ '-m', 'pip', 'install', 'googleapis-common-protos==1.6.0',  '--no-warn-script-location'],\
+        \ env={'PIP_DISABLE_PIP_VERSION_CHECK': '1'}, check=True)\n  subprocess.run([sys.executable,\
+        \ '-m', 'pip', 'install', 'google-cloud-automl==0.9.0', '--quiet', '--no-warn-script-location'],\
+        \ env={'PIP_DISABLE_PIP_VERSION_CHECK': '1'}, check=True)\n\n  import google\n\
+        \  import logging\n  from google.api_core.client_options import ClientOptions\n\
+        \  from google.api_core import exceptions\n  from google.cloud import automl_v1beta1\
+        \ as automl\n  from google.cloud.automl_v1beta1 import enums\n\n  logging.getLogger().setLevel(logging.INFO)\
+        \  # TODO: make level configurable\n  # TODO: we could instead check for region\
+        \ 'eu' and use 'eu-automl.googleapis.com:443'endpoint\n  # in that case, instead\
+        \ of requiring endpoint to be specified.\n  if api_endpoint:\n    client_options\
+        \ = ClientOptions(api_endpoint=api_endpoint)\n    client = automl.TablesClient(project=gcp_project_id,\
+        \ region=gcp_region,\n        client_options=client_options)\n  else:\n  \
+        \  client = automl.TablesClient(project=gcp_project_id, region=gcp_region)\n\
+        \n  try:\n    model = client.get_model(model_display_name=model_display_name)\n\
+        \    if model.deployment_state == enums.Model.DeploymentState.DEPLOYED:\n\
+        \        status = 'deployed'\n        logging.info('Model {} already deployed'.format(model_display_name))\n\
+        \    else:\n      logging.info('Deploying model {}'.format(model_display_name))\n\
+        \      response = client.deploy_model(model_display_name=model_display_name)\n\
+        \      # synchronous wait\n      logging.info(\"Model deployed. {}\".format(response.result()))\n\
+        \      status = 'deployed'\n  except exceptions.NotFound as e:\n    logging.warning(e)\n\
+        \    status = 'not_found'\n  except Exception as e:\n    logging.warning(e)\n\
+        \    status = 'undeployed'\n\n  logging.info('Model status: {}'.format(status))\n\
+        \  return (model_display_name, status)\n\ndef _serialize_str(str_value: str)\
+        \ -> str:\n    if not isinstance(str_value, str):\n        raise TypeError('Value\
+        \ \"{}\" has type \"{}\" instead of str.'.format(str(str_value), str(type(str_value))))\n\
+        \    return str_value\n\nimport argparse\n_parser = argparse.ArgumentParser(prog='Automl\
+        \ deploy tables model', description='')\n_parser.add_argument(\"--gcp-project-id\"\
+        , dest=\"gcp_project_id\", type=str, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--gcp-region\", dest=\"gcp_region\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--model-display-name\"\
+        , dest=\"model_display_name\", type=str, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--api-endpoint\", dest=\"api_endpoint\", type=str,\
+        \ required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\"\
+        , dest=\"_output_paths\", type=str, nargs=2)\n_parsed_args = vars(_parser.parse_args())\n\
+        _output_files = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = automl_deploy_tables_model(**_parsed_args)\n\
+        \nif not hasattr(_outputs, '__getitem__') or isinstance(_outputs, str):\n\
+        \    _outputs = [_outputs]\n\n_output_serializers = [\n    _serialize_str,\n\
+        \    _serialize_str\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n\
+        \    try:\n        os.makedirs(os.path.dirname(output_file))\n    except OSError:\n\
+        \        pass\n    with open(output_file, 'w') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      image: python:3.7
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials-user-gcp-sa
+    inputs:
+      parameters:
+      - name: api-endpoint
+      - name: gcp-project-id
+      - name: gcp-region
+      - name: model-display-name
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/component_spec: '{"inputs": [{"name": "gcp_project_id",
+          "type": "String"}, {"name": "gcp_region", "type": "String"}, {"name": "model_display_name",
+          "type": "String"}, {"name": "api_endpoint", "optional": true, "type": "String"}],
+          "name": "Automl deploy tables model", "outputs": [{"name": "model_display_name",
+          "type": "String"}, {"name": "status", "type": "String"}]}'
+    name: automl-deploy-tables-model
+    outputs:
+      artifacts:
+      - name: automl-deploy-tables-model-model-display-name
+        path: /tmp/outputs/model_display_name/data
+      - name: automl-deploy-tables-model-status
+        path: /tmp/outputs/status/data
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret:
+        secretName: user-gcp-sa
+  - container:
+      args:
+      - --gcp-project-id
+      - '{{inputs.parameters.gcp-project-id}}'
+      - --gcp-region
+      - '{{inputs.parameters.gcp-region}}'
+      - --model-display-name
+      - '{{inputs.parameters.model-display-name}}'
+      - --bucket-name
+      - '{{inputs.parameters.bucket-name}}'
+      - --eval-data
+      - /tmp/inputs/eval_data/data
+      - --api-endpoint
+      - '{{inputs.parameters.api-endpoint}}'
+      - --thresholds
+      - '{{inputs.parameters.thresholds}}'
+      - '----output-paths'
+      - /tmp/outputs/deploy/data
+      command:
+      - python3
+      - -u
+      - -c
+      - "class InputPath:\n    '''When creating component from function, InputPath\
+        \ should be used as function parameter annotation to tell the system to pass\
+        \ the *data file path* to the function instead of passing the actual data.'''\n\
+        \    def __init__(self, type=None):\n        self.type = type\n\nfrom typing\
+        \ import NamedTuple\n\ndef automl_eval_metrics(\n\tgcp_project_id: str,\n\t\
+        gcp_region: str,\n  model_display_name: str,\n  bucket_name: str,\n  # gcs_path:\
+        \ str,\n  eval_data_path: InputPath('evals'),\n  api_endpoint: str = None,\n\
+        \  # thresholds: str = '{\"au_prc\": 0.9}',\n  thresholds: str = '{\"mean_absolute_error\"\
+        : 450}',\n  confidence_threshold: float = 0.5  # for classification\n\n) ->\
+        \ NamedTuple('Outputs', [('deploy', bool)]):\n  import subprocess\n  import\
+        \ sys\n  subprocess.run([sys.executable, '-m', 'pip', 'install', 'googleapis-common-protos==1.6.0',\n\
+        \      '--no-warn-script-location'], env={'PIP_DISABLE_PIP_VERSION_CHECK':\
+        \ '1'}, check=True)\n  subprocess.run([sys.executable, '-m', 'pip', 'install',\
+        \ 'google-cloud-automl==0.9.0',\n     '--no-warn-script-location'], env={'PIP_DISABLE_PIP_VERSION_CHECK':\
+        \ '1'}, check=True)\n\n  import google\n  import json\n  import logging\n\
+        \  import pickle\n  from google.api_core.client_options import ClientOptions\n\
+        \  from google.api_core import exceptions\n  from google.cloud import automl_v1beta1\
+        \ as automl\n  from google.cloud.automl_v1beta1 import enums\n  # from google.cloud\
+        \ import storage\n\n  # def get_string_from_gcs(project, bucket_name, gcs_path):\n\
+        \  #   logging.info('Using bucket {} and path {}'.format(bucket_name, gcs_path))\n\
+        \  #   storage_client = storage.Client(project=project)\n  #   bucket = storage_client.get_bucket(bucket_name)\n\
+        \  #   blob = bucket.blob(gcs_path)\n  #   return blob.download_as_string()\n\
+        \n  logging.getLogger().setLevel(logging.INFO)  # TODO: make level configurable\n\
+        \  # TODO: we could instead check for region 'eu' and use 'eu-automl.googleapis.com:443'endpoint\n\
+        \  # in that case, instead of requiring endpoint to be specified.\n  if api_endpoint:\n\
+        \    client_options = ClientOptions(api_endpoint=api_endpoint)\n    client\
+        \ = automl.TablesClient(project=gcp_project_id, region=gcp_region,\n     \
+        \   client_options=client_options)\n  else:\n    client = automl.TablesClient(project=gcp_project_id,\
+        \ region=gcp_region)\n\n  thresholds_dict = json.loads(thresholds)\n  logging.info('thresholds\
+        \ dict: {}'.format(thresholds_dict))\n\n  def regression_threshold_check(eval_info):\n\
+        \    rmetrics = eval_info[1].regression_evaluation_metrics\n    logging.info('got\
+        \ regression eval {}'.format(eval_info[1]))\n    eresults['root_mean_squared_error']\
+        \ = rmetrics.root_mean_squared_error\n    eresults['mean_absolute_error']\
+        \ = rmetrics.mean_absolute_error\n    eresults['r_squared'] = rmetrics.r_squared\n\
+        \    eresults['mean_absolute_percentage_error'] = rmetrics.mean_absolute_percentage_error\n\
+        \    eresults['root_mean_squared_log_error'] = rmetrics.root_mean_squared_log_error\n\
+        \    for k,v in thresholds_dict.items():\n      logging.info('k {}, v {}'.format(k,\
+        \ v))\n      if k in ['root_mean_squared_error', 'mean_absolute_error', 'mean_absolute_percentage_error']:\n\
+        \        if eresults[k] > v:\n          logging.info('{} > {}; returning False'.format(\n\
+        \              eresults[k], v))\n          return False\n      elif eresults[k]\
+        \ < v:\n        logging.info('{} < {}; returning False'.format(\n        \
+        \    eresults[k], v))\n        return False\n    return True\n\n  def classif_threshold_check(eval_info):\n\
+        \    example_count = eval_info[0].evaluated_example_count\n    print('Looking\
+        \ for example_count {}'.format(example_count))\n    for e in eval_info[1:]:\
+        \  # we know we don't want the first elt\n      if e.evaluated_example_count\
+        \ == example_count:\n        # print('found relevant eval {}'.format(e))\n\
+        \        eresults['au_prc'] = e.classification_evaluation_metrics.au_prc\n\
+        \        eresults['au_roc'] = e.classification_evaluation_metrics.au_roc\n\
+        \        eresults['log_loss'] = e.classification_evaluation_metrics.log_loss\n\
+        \        for i in e.classification_evaluation_metrics.confidence_metrics_entry:\n\
+        \          if i.confidence_threshold >= confidence_threshold:\n          \
+        \  eresults['recall'] = i.recall\n            eresults['precision'] = i.precision\n\
+        \            eresults['f1_score'] = i.f1_score\n            break\n      \
+        \  break\n    logging.info('eresults: {}'.format(eresults))\n    for k,v in\
+        \ thresholds_dict.items():\n      logging.info('k {}, v {}'.format(k, v))\n\
+        \      if k == 'log_loss':\n        if eresults[k] > v:\n          logging.info('{}\
+        \ > {}; returning False'.format(\n              eresults[k], v))\n       \
+        \   return False\n      else:\n        if eresults[k] < v:\n          logging.info('{}\
+        \ < {}; returning False'.format(\n              eresults[k], v))\n       \
+        \   return False\n    return True\n\n  def generate_cm_metadata():\n    pass\n\
+        \n  # testing...\n  with open(eval_data_path, 'rb') as f:\n    logging.info('successfully\
+        \ opened eval_data_path {}'.format(eval_data_path))\n    try:\n      eval_info\
+        \ = pickle.loads(f.read())\n      eresults = {}\n      # TODO: add handling\
+        \ of confusion matrix stuff for binary classif case..\n      # eval_string\
+        \ = get_string_from_gcs(gcp_project_id, bucket_name, gcs_path)\n      # eval_info\
+        \ = pickle.loads(eval_string)\n\n      classif = False\n      binary_classif\
+        \ = False\n      regression = False\n      # TODO: ughh... what's the right\
+        \ way to figure out the model type?\n      if eval_info[1].regression_evaluation_metrics\
+        \ and eval_info[1].regression_evaluation_metrics.root_mean_squared_error:\n\
+        \        regression=True\n        logging.info('found regression metrics {}'.format(eval_info[1].regression_evaluation_metrics))\n\
+        \      if eval_info[1].classification_evaluation_metrics and eval_info[1].classification_evaluation_metrics.au_prc:\n\
+        \        classif = True\n        logging.info('found classification metrics\
+        \ {}'.format(eval_info[1].classification_evaluation_metrics))\n        # TODO:\
+        \ detect binary classification case\n\n      if regression and thresholds_dict:\n\
+        \        res = regression_threshold_check(eval_info)\n        logging.info('deploy\
+        \ flag: {}'.format(res))\n        # TODO: generate ui-metadata as appropriate\n\
+        \        return res\n      elif classif and thresholds_dict:\n        res\
+        \ = classif_threshold_check(eval_info)\n        logging.info('deploy flag:\
+        \ {}'.format(res))\n        # TODO: generate confusion matrix ui-metadata\
+        \ as approp etc.\n        if binary_classif:\n          generate_cm_metadata()\n\
+        \        return res\n      else:\n        return True\n    except Exception\
+        \ as e:\n      logging.warning(e)\n      # If can't reconstruct the eval,\
+        \ or don't have thresholds defined,\n      # return True as a signal to deploy.\n\
+        \      # TODO: is this the right default?\n      return True\n\ndef _serialize_bool(bool_value:\
+        \ bool) -> str:\n    if isinstance(bool_value, str):\n        return bool_value\n\
+        \    if not isinstance(bool_value, bool):\n        raise TypeError('Value\
+        \ \"{}\" has type \"{}\" instead of bool.'.format(str(bool_value), str(type(bool_value))))\n\
+        \    return str(bool_value)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog='Automl\
+        \ eval metrics', description='')\n_parser.add_argument(\"--gcp-project-id\"\
+        , dest=\"gcp_project_id\", type=str, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--gcp-region\", dest=\"gcp_region\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--model-display-name\"\
+        , dest=\"model_display_name\", type=str, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--bucket-name\", dest=\"bucket_name\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--eval-data\", dest=\"\
+        eval_data_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
+        --api-endpoint\", dest=\"api_endpoint\", type=str, required=False, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--thresholds\", dest=\"thresholds\", type=str, required=False,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--confidence-threshold\"\
+        , dest=\"confidence_threshold\", type=float, required=False, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"----output-paths\", dest=\"_output_paths\", type=str,\
+        \ nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files = _parsed_args.pop(\"\
+        _output_paths\", [])\n\n_outputs = automl_eval_metrics(**_parsed_args)\n\n\
+        if not hasattr(_outputs, '__getitem__') or isinstance(_outputs, str):\n  \
+        \  _outputs = [_outputs]\n\n_output_serializers = [\n    _serialize_bool\n\
+        ]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n\
+        \        os.makedirs(os.path.dirname(output_file))\n    except OSError:\n\
+        \        pass\n    with open(output_file, 'w') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      image: python:3.7
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials-user-gcp-sa
+    inputs:
+      artifacts:
+      - name: automl-eval-tables-model-eval-data
+        path: /tmp/inputs/eval_data/data
+      parameters:
+      - name: api-endpoint
+      - name: bucket-name
+      - name: gcp-project-id
+      - name: gcp-region
+      - name: model-display-name
+      - name: thresholds
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/component_spec: '{"inputs": [{"name": "gcp_project_id",
+          "type": "String"}, {"name": "gcp_region", "type": "String"}, {"name": "model_display_name",
+          "type": "String"}, {"name": "bucket_name", "type": "String"}, {"name": "eval_data",
+          "type": "evals"}, {"name": "api_endpoint", "optional": true, "type": "String"},
+          {"default": "{\"mean_absolute_error\": 450}", "name": "thresholds", "optional":
+          true, "type": "String"}, {"default": "0.5", "name": "confidence_threshold",
+          "optional": true, "type": "Float"}], "name": "Automl eval metrics", "outputs":
+          [{"name": "deploy", "type": "Boolean"}]}'
+    name: automl-eval-metrics
+    outputs:
+      artifacts:
+      - name: automl-eval-metrics-deploy
+        path: /tmp/outputs/deploy/data
+      parameters:
+      - name: automl-eval-metrics-deploy
+        valueFrom:
+          path: /tmp/outputs/deploy/data
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret:
+        secretName: user-gcp-sa
+  - container:
+      args:
+      - --gcp-project-id
+      - '{{inputs.parameters.gcp-project-id}}'
+      - --gcp-region
+      - '{{inputs.parameters.gcp-region}}'
+      - --model-display-name
+      - '{{inputs.parameters.model-display-name}}'
+      - --bucket-name
+      - '{{inputs.parameters.bucket-name}}'
+      - --api-endpoint
+      - '{{inputs.parameters.api-endpoint}}'
+      - --eval-data
+      - /tmp/outputs/eval_data/data
+      - '----output-paths'
+      - /tmp/outputs/feat_list/data
+      command:
+      - python3
+      - -u
+      - -c
+      - "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n \
+        \   os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return file_path\n\
+        \nclass OutputPath:\n    '''When creating component from function, OutputPath\
+        \ should be used as function parameter annotation to tell the system that\
+        \ the function wants to output data by writing it into a file with the given\
+        \ path instead of returning the data from the function.'''\n    def __init__(self,\
+        \ type=None):\n        self.type = type\n\nfrom typing import NamedTuple\n\
+        \ndef automl_eval_tables_model(\n\tgcp_project_id: str,\n\tgcp_region: str,\n\
+        \  model_display_name: str,\n  bucket_name: str,\n  # gcs_path: str,\n  eval_data_path:\
+        \ OutputPath('evals'),\n  api_endpoint: str = None,\n\n) -> NamedTuple('Outputs',\
+        \ [\n    # ('evals_gcs_path', str),\n    ('feat_list', str)]):\n  import subprocess\n\
+        \  import sys\n  subprocess.run([sys.executable, '-m', 'pip', 'install', 'googleapis-common-protos==1.6.0',\n\
+        \     '--no-warn-script-location'], env={'PIP_DISABLE_PIP_VERSION_CHECK':\
+        \ '1'}, check=True)\n  subprocess.run([sys.executable, '-m', 'pip', 'install',\
+        \ 'google-cloud-automl==0.9.0',\n     '--no-warn-script-location'], env={'PIP_DISABLE_PIP_VERSION_CHECK':\
+        \ '1'}, check=True)\n  subprocess.run([sys.executable, '-m', 'pip', 'install',\
+        \  # 'google-cloud-storage',\n     'matplotlib', 'pathlib2',\n     '--no-warn-script-location'],\
+        \ env={'PIP_DISABLE_PIP_VERSION_CHECK': '1'}, check=True)\n\n  import google\n\
+        \  import json\n  import logging\n  import pickle\n  import pathlib2\n\n \
+        \ # import kfp\n  from google.api_core.client_options import ClientOptions\n\
+        \  from google.api_core import exceptions\n  from google.cloud import automl_v1beta1\
+        \ as automl\n  from google.cloud.automl_v1beta1 import enums\n  # from google.cloud\
+        \ import storage\n\n  # def copy_string_to_gcs(project, bucket_name, gcs_path,\
+        \ pstring):\n  #   logging.info('Using bucket {} and path {}'.format(bucket_name,\
+        \ gcs_path))\n  #   storage_client = storage.Client(project=project)\n  #\
+        \   bucket = storage_client.get_bucket(bucket_name)\n  #   blob = bucket.blob(gcs_path)\n\
+        \  #   blob.upload_from_string(pstring)\n\n  def get_model_details(client,\
+        \ model_display_name):\n    try:\n        model = client.get_model(model_display_name=model_display_name)\n\
+        \    except exceptions.NotFound:\n        logging.info(\"Model %s not found.\"\
+        \ % model_display_name)\n        return (None, None)\n\n    model = client.get_model(model_display_name=model_display_name)\n\
+        \    # Retrieve deployment state.\n    if model.deployment_state == enums.Model.DeploymentState.DEPLOYED:\n\
+        \        deployment_state = \"deployed\"\n    else:\n        deployment_state\
+        \ = \"undeployed\"\n    # get features of top global importance\n    feat_list\
+        \ = [\n        (column.feature_importance, column.column_display_name)\n \
+        \       for column in model.tables_model_metadata.tables_model_column_info\n\
+        \    ]\n    feat_list.sort(reverse=True)\n    if len(feat_list) < 10:\n  \
+        \      feat_to_show = len(feat_list)\n    else:\n        feat_to_show = 10\n\
+        \n    # Display the model information.\n    logging.info(\"Model name: {}\"\
+        .format(model.name))\n    logging.info(\"Model id: {}\".format(model.name.split(\"\
+        /\")[-1]))\n    logging.info(\"Model display name: {}\".format(model.display_name))\n\
+        \    logging.info(\"Features of top importance:\")\n    for feat in feat_list[:feat_to_show]:\n\
+        \        logging.info(feat)\n    logging.info(\"Model create time:\")\n  \
+        \  logging.info(\"\\tseconds: {}\".format(model.create_time.seconds))\n  \
+        \  logging.info(\"\\tnanos: {}\".format(model.create_time.nanos))\n    logging.info(\"\
+        Model deployment state: {}\".format(deployment_state))\n\n    generate_fi_ui(feat_list)\n\
+        \n    return (model, feat_list)\n\n  # TODO: generate ui-metadata for global\
+        \ features importance.\n  # Try nbconvert-based viz?... though that doesn't\
+        \ seem to be automatable?\n  def generate_fi_ui(feat_list):\n    import matplotlib.pyplot\
+        \ as plt\n\n    res = list(zip(*feat_list))\n    x = list(res[0])\n    y =\
+        \ list(res[1])\n    y_pos = list(range(len(y)))\n    plt.barh(y_pos, x, alpha=0.5)\n\
+        \    plt.yticks(y_pos, y)\n    plt.savefig('/gfi.png')\n\n    with open('/gfi.html',\
+        \ 'w') as f:\n      f.write('<html><head></head><body><img src=\"/gfi.png\"\
+        \ /></body></html>')\n\n    metadata = {\n      'outputs' : [{\n        'type':\
+        \ 'web-app',\n        'storage': 'gcs',\n        'source': \"/gfi.html\"\n\
+        \      }]\n    }\n    with open('/mlpipeline-ui-metadata.json', 'w') as f:\n\
+        \      json.dump(metadata, f)\n\n  logging.getLogger().setLevel(logging.INFO)\
+        \  # TODO: make level configurable\n  # TODO: we could instead check for region\
+        \ 'eu' and use 'eu-automl.googleapis.com:443'endpoint\n  # in that case, instead\
+        \ of requiring endpoint to be specified.\n  if api_endpoint:\n    client_options\
+        \ = ClientOptions(api_endpoint=api_endpoint)\n    client = automl.TablesClient(project=gcp_project_id,\
+        \ region=gcp_region,\n        client_options=client_options)\n  else:\n  \
+        \  client = automl.TablesClient(project=gcp_project_id, region=gcp_region)\n\
+        \n  (model, feat_list) = get_model_details(client, model_display_name)\n\n\
+        \  evals = list(client.list_model_evaluations(model_display_name=model_display_name))\n\
+        \  with open('temp_oput_regression', \"w\") as f:\n    f.write('Model evals:\\\
+        n{}'.format(evals))\n  pstring = pickle.dumps(evals)\n  # pstring = pickled_eval.hex()\n\
+        \  # copy_string_to_gcs(gcp_project_id, bucket_name, gcs_path, pstring)\n\n\
+        \  # write to eval_data_path\n  if eval_data_path:\n    logging.info(\"eval_data_path:\
+        \ %s\", eval_data_path)\n    try:\n      pathlib2.Path(eval_data_path).parent.mkdir(parents=True)\n\
+        \    except FileExistsError:\n      pass\n    pathlib2.Path(eval_data_path).write_bytes(pstring)\n\
+        \n  feat_list_string = json.dumps(feat_list)\n  # return(gcs_path, feat_list_string)\n\
+        \  return(feat_list_string)\n\ndef _serialize_str(str_value: str) -> str:\n\
+        \    if not isinstance(str_value, str):\n        raise TypeError('Value \"\
+        {}\" has type \"{}\" instead of str.'.format(str(str_value), str(type(str_value))))\n\
+        \    return str_value\n\nimport argparse\n_parser = argparse.ArgumentParser(prog='Automl\
+        \ eval tables model', description='')\n_parser.add_argument(\"--gcp-project-id\"\
+        , dest=\"gcp_project_id\", type=str, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--gcp-region\", dest=\"gcp_region\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--model-display-name\"\
+        , dest=\"model_display_name\", type=str, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--bucket-name\", dest=\"bucket_name\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--api-endpoint\", dest=\"\
+        api_endpoint\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
+        --eval-data\", dest=\"eval_data_path\", type=_make_parent_dirs_and_return_path,\
+        \ required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\"\
+        , dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n\
+        _output_files = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = automl_eval_tables_model(**_parsed_args)\n\
+        \nif not hasattr(_outputs, '__getitem__') or isinstance(_outputs, str):\n\
+        \    _outputs = [_outputs]\n\n_output_serializers = [\n    _serialize_str\n\
+        ]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n\
+        \        os.makedirs(os.path.dirname(output_file))\n    except OSError:\n\
+        \        pass\n    with open(output_file, 'w') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      image: python:3.7
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials-user-gcp-sa
+    inputs:
+      parameters:
+      - name: api-endpoint
+      - name: bucket-name
+      - name: gcp-project-id
+      - name: gcp-region
+      - name: model-display-name
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/component_spec: '{"inputs": [{"name": "gcp_project_id",
+          "type": "String"}, {"name": "gcp_region", "type": "String"}, {"name": "model_display_name",
+          "type": "String"}, {"name": "bucket_name", "type": "String"}, {"name": "api_endpoint",
+          "optional": true, "type": "String"}], "name": "Automl eval tables model",
+          "outputs": [{"name": "eval_data", "type": "evals"}, {"name": "feat_list",
+          "type": "String"}]}'
+    name: automl-eval-tables-model
+    outputs:
+      artifacts:
+      - name: automl-eval-tables-model-eval-data
+        path: /tmp/outputs/eval_data/data
+      - name: automl-eval-tables-model-feat-list
+        path: /tmp/outputs/feat_list/data
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret:
+        secretName: user-gcp-sa
+  - dag:
+      tasks:
+      - arguments:
+          artifacts:
+          - from: '{{tasks.automl-eval-tables-model.outputs.artifacts.automl-eval-tables-model-eval-data}}'
+            name: automl-eval-tables-model-eval-data
+          parameters:
+          - name: api-endpoint
+            value: '{{inputs.parameters.api-endpoint}}'
+          - name: bucket-name
+            value: '{{inputs.parameters.bucket-name}}'
+          - name: gcp-project-id
+            value: '{{inputs.parameters.gcp-project-id}}'
+          - name: gcp-region
+            value: '{{inputs.parameters.gcp-region}}'
+          - name: model-display-name
+            value: '{{inputs.parameters.model-display-name}}'
+          - name: thresholds
+            value: '{{inputs.parameters.thresholds}}'
+        dependencies:
+        - automl-eval-tables-model
+        name: automl-eval-metrics
+        template: automl-eval-metrics
+      - arguments:
+          parameters:
+          - name: api-endpoint
+            value: '{{inputs.parameters.api-endpoint}}'
+          - name: bucket-name
+            value: '{{inputs.parameters.bucket-name}}'
+          - name: gcp-project-id
+            value: '{{inputs.parameters.gcp-project-id}}'
+          - name: gcp-region
+            value: '{{inputs.parameters.gcp-region}}'
+          - name: model-display-name
+            value: '{{inputs.parameters.model-display-name}}'
+        name: automl-eval-tables-model
+        template: automl-eval-tables-model
+      - arguments:
+          parameters:
+          - name: api-endpoint
+            value: '{{inputs.parameters.api-endpoint}}'
+          - name: gcp-project-id
+            value: '{{inputs.parameters.gcp-project-id}}'
+          - name: gcp-region
+            value: '{{inputs.parameters.gcp-region}}'
+          - name: model-display-name
+            value: '{{inputs.parameters.model-display-name}}'
+        dependencies:
+        - automl-eval-metrics
+        name: condition-1
+        template: condition-1
+        when: '"{{tasks.automl-eval-metrics.outputs.parameters.automl-eval-metrics-deploy}}"
+          == "True"'
+    inputs:
+      parameters:
+      - name: api-endpoint
+      - name: bucket-name
+      - name: gcp-project-id
+      - name: gcp-region
+      - name: model-display-name
+      - name: thresholds
+    name: automl-tables
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: api-endpoint
+            value: '{{inputs.parameters.api-endpoint}}'
+          - name: gcp-project-id
+            value: '{{inputs.parameters.gcp-project-id}}'
+          - name: gcp-region
+            value: '{{inputs.parameters.gcp-region}}'
+          - name: model-display-name
+            value: '{{inputs.parameters.model-display-name}}'
+        name: automl-deploy-tables-model
+        template: automl-deploy-tables-model
+    inputs:
+      parameters:
+      - name: api-endpoint
+      - name: gcp-project-id
+      - name: gcp-region
+      - name: model-display-name
+    name: condition-1
