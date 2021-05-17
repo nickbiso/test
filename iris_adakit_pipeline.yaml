@@ -1,0 +1,421 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: iris-dataset-using-adakit-on-kubeflow-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.1.0, pipelines.kubeflow.org/pipeline_compilation_time: '2021-05-17T14:18:09.713223',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "Iris dataset using adakit
+      on kubeflow", "name": "Iris dataset using adakit on kubeflow"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.1.0}
+spec:
+  entrypoint: iris-dataset-using-adakit-on-kubeflow
+  templates:
+  - name: download-iris
+    container:
+      args: [--x-iris, /tmp/outputs/x_iris/data, --y-iris, /tmp/outputs/y_iris/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'scikit-learn==0.23.0' 'pandas==1.2.3' 'numpy==1.19.2' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'scikit-learn==0.23.0'
+        'pandas==1.2.3' 'numpy==1.19.2' --user) && "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        def _make_parent_dirs_and_return_path(file_path: str):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+
+        def download_iris(x_iris_path, y_iris_path):
+            import sys
+            import logging
+            from sklearn import datasets
+            import pandas as pd
+
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger(__name__)
+            logger.info(f"Python version: {sys.version}")
+            logger.info("Starting dowload_iris()")
+
+            logger.info("Downloading iris dataset")
+            iris_x = pd.DataFrame(datasets.load_iris().data)
+            iris_y = pd.DataFrame(datasets.load_iris().target)
+
+            logger.info(f"iris_x shape: {iris_x.shape}")
+            logger.info(f"iris_y shape: {iris_y.shape}")
+
+            logger.info(f"Saving to CSV")
+            iris_x.to_csv(x_iris_path, index=False)
+            iris_y.to_csv(y_iris_path, index=False)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Download iris', description='')
+        _parser.add_argument("--x-iris", dest="x_iris_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-iris", dest="y_iris_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = download_iris(**_parsed_args)
+      image: python:3.8.5
+    outputs:
+      artifacts:
+      - {name: download-iris-x_iris, path: /tmp/outputs/x_iris/data}
+      - {name: download-iris-y_iris, path: /tmp/outputs/y_iris/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--x-iris", {"outputPath": "x_iris"}, "--y-iris", {"outputPath":
+          "y_iris"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' --user) && \"$0\" \"$@\"", "python3",
+          "-u", "-c", "def _make_parent_dirs_and_return_path(file_path: str):\n    import
+          os\n    os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return
+          file_path\n\ndef download_iris(x_iris_path, y_iris_path):\n    import sys\n    import
+          logging\n    from sklearn import datasets\n    import pandas as pd\n\n    logging.basicConfig(level=logging.INFO)\n    logger
+          = logging.getLogger(__name__)\n    logger.info(f\"Python version: {sys.version}\")\n    logger.info(\"Starting
+          dowload_iris()\")\n\n    logger.info(\"Downloading iris dataset\")\n    iris_x
+          = pd.DataFrame(datasets.load_iris().data)\n    iris_y = pd.DataFrame(datasets.load_iris().target)\n\n    logger.info(f\"iris_x
+          shape: {iris_x.shape}\")\n    logger.info(f\"iris_y shape: {iris_y.shape}\")\n\n    logger.info(f\"Saving
+          to CSV\")\n    iris_x.to_csv(x_iris_path, index=False)\n    iris_y.to_csv(y_iris_path,
+          index=False)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Download
+          iris'', description='''')\n_parser.add_argument(\"--x-iris\", dest=\"x_iris_path\",
+          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-iris\",
+          dest=\"y_iris_path\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = download_iris(**_parsed_args)\n"], "image": "python:3.8.5"}}, "name":
+          "Download iris", "outputs": [{"name": "x_iris", "type": "String"}, {"name":
+          "y_iris", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}'}
+  - name: iris-dataset-using-adakit-on-kubeflow
+    dag:
+      tasks:
+      - {name: download-iris, template: download-iris}
+      - name: split-train-test
+        template: split-train-test
+        dependencies: [download-iris]
+        arguments:
+          artifacts:
+          - {name: download-iris-x_iris, from: '{{tasks.download-iris.outputs.artifacts.download-iris-x_iris}}'}
+          - {name: download-iris-y_iris, from: '{{tasks.download-iris.outputs.artifacts.download-iris-y_iris}}'}
+      - name: train-model
+        template: train-model
+        dependencies: [split-train-test]
+        arguments:
+          artifacts:
+          - {name: split-train-test-x_train, from: '{{tasks.split-train-test.outputs.artifacts.split-train-test-x_train}}'}
+          - {name: split-train-test-y_train, from: '{{tasks.split-train-test.outputs.artifacts.split-train-test-y_train}}'}
+      - name: validate-model
+        template: validate-model
+        dependencies: [split-train-test, train-model]
+        arguments:
+          artifacts:
+          - {name: split-train-test-x_test, from: '{{tasks.split-train-test.outputs.artifacts.split-train-test-x_test}}'}
+          - {name: split-train-test-y_test, from: '{{tasks.split-train-test.outputs.artifacts.split-train-test-y_test}}'}
+          - {name: train-model-rf, from: '{{tasks.train-model.outputs.artifacts.train-model-rf}}'}
+  - name: split-train-test
+    container:
+      args: [--x-iris, /tmp/inputs/x_iris/data, --y-iris, /tmp/inputs/y_iris/data,
+        --x-train, /tmp/outputs/x_train/data, --y-train, /tmp/outputs/y_train/data,
+        --x-test, /tmp/outputs/x_test/data, --y-test, /tmp/outputs/y_test/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'scikit-learn==0.23.0' 'pandas==1.2.3' 'numpy==1.19.2' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'scikit-learn==0.23.0'
+        'pandas==1.2.3' 'numpy==1.19.2' --user) && "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        def _make_parent_dirs_and_return_path(file_path: str):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+
+        def split_train_test(x_iris_path,
+                             y_iris_path,
+                             x_train_path,
+                             y_train_path,
+                             x_test_path,
+                             y_test_path):
+
+            from sklearn.model_selection import train_test_split
+            import pandas as pd
+            import logging
+
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger(__name__)
+            logger.info("Starting split_train_test()")
+
+            logger.info(f"Reading data from: {x_iris_path}")
+            iris_x = pd.read_csv(x_iris_path)
+            logger.info(f"Reading data from: {y_iris_path}")
+            iris_y = pd.read_csv(y_iris_path)
+
+            logger.info(f"iris_x shape: {iris_x.shape}")
+            logger.info(f"iris_y shape: {iris_y.shape}")
+
+            logger.info("Train test split")
+            x_train, x_test, y_train, y_test = train_test_split(iris_x, iris_y)
+
+            logger.info("Writing files to disk")
+            x_train.to_csv(x_train_path, index=False)
+            x_test.to_csv(x_test_path, index=False)
+            y_train.to_csv(y_train_path, index=False)
+            y_test.to_csv(y_test_path, index=False)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Split train test', description='')
+        _parser.add_argument("--x-iris", dest="x_iris_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-iris", dest="y_iris_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-train", dest="x_train_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-train", dest="y_train_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-test", dest="x_test_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-test", dest="y_test_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = split_train_test(**_parsed_args)
+      image: python:3.8.5
+    inputs:
+      artifacts:
+      - {name: download-iris-x_iris, path: /tmp/inputs/x_iris/data}
+      - {name: download-iris-y_iris, path: /tmp/inputs/y_iris/data}
+    outputs:
+      artifacts:
+      - {name: split-train-test-x_test, path: /tmp/outputs/x_test/data}
+      - {name: split-train-test-x_train, path: /tmp/outputs/x_train/data}
+      - {name: split-train-test-y_test, path: /tmp/outputs/y_test/data}
+      - {name: split-train-test-y_train, path: /tmp/outputs/y_train/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--x-iris", {"inputPath": "x_iris"}, "--y-iris", {"inputPath":
+          "y_iris"}, "--x-train", {"outputPath": "x_train"}, "--y-train", {"outputPath":
+          "y_train"}, "--x-test", {"outputPath": "x_test"}, "--y-test", {"outputPath":
+          "y_test"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' --user) && \"$0\" \"$@\"", "python3",
+          "-u", "-c", "def _make_parent_dirs_and_return_path(file_path: str):\n    import
+          os\n    os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return
+          file_path\n\ndef split_train_test(x_iris_path,\n                     y_iris_path,\n                     x_train_path,\n                     y_train_path,\n                     x_test_path,\n                     y_test_path):\n\n    from
+          sklearn.model_selection import train_test_split\n    import pandas as pd\n    import
+          logging\n\n    logging.basicConfig(level=logging.INFO)\n    logger = logging.getLogger(__name__)\n    logger.info(\"Starting
+          split_train_test()\")\n\n    logger.info(f\"Reading data from: {x_iris_path}\")\n    iris_x
+          = pd.read_csv(x_iris_path)\n    logger.info(f\"Reading data from: {y_iris_path}\")\n    iris_y
+          = pd.read_csv(y_iris_path)\n\n    logger.info(f\"iris_x shape: {iris_x.shape}\")\n    logger.info(f\"iris_y
+          shape: {iris_y.shape}\")\n\n    logger.info(\"Train test split\")\n    x_train,
+          x_test, y_train, y_test = train_test_split(iris_x, iris_y)\n\n    logger.info(\"Writing
+          files to disk\")\n    x_train.to_csv(x_train_path, index=False)\n    x_test.to_csv(x_test_path,
+          index=False)\n    y_train.to_csv(y_train_path, index=False)\n    y_test.to_csv(y_test_path,
+          index=False)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Split
+          train test'', description='''')\n_parser.add_argument(\"--x-iris\", dest=\"x_iris_path\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-iris\",
+          dest=\"y_iris_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-train\",
+          dest=\"x_train_path\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-train\", dest=\"y_train_path\",
+          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-test\",
+          dest=\"x_test_path\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-test\", dest=\"y_test_path\",
+          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = split_train_test(**_parsed_args)\n"],
+          "image": "python:3.8.5"}}, "inputs": [{"name": "x_iris", "type": "String"},
+          {"name": "y_iris", "type": "String"}], "name": "Split train test", "outputs":
+          [{"name": "x_train", "type": "String"}, {"name": "y_train", "type": "String"},
+          {"name": "x_test", "type": "String"}, {"name": "y_test", "type": "String"}]}',
+        pipelines.kubeflow.org/component_ref: '{}'}
+  - name: train-model
+    container:
+      args: [--x-train, /tmp/inputs/x_train/data, --y-train, /tmp/inputs/y_train/data,
+        --rf, /tmp/outputs/rf/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'scikit-learn==0.23.0' 'pandas==1.2.3' 'numpy==1.19.2' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'scikit-learn==0.23.0'
+        'pandas==1.2.3' 'numpy==1.19.2' --user) && "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        def _make_parent_dirs_and_return_path(file_path: str):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+
+        def train_model(x_train_path,
+                        y_train_path,
+                        rf_path):
+
+            from sklearn.ensemble import RandomForestClassifier
+            import joblib
+            import pandas as pd
+            import logging
+            import numpy as np
+
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger(__name__)
+            logger.info("Starting train_model()")
+
+            logger.info("Reading Data from path")
+            x_train = pd.read_csv(x_train_path, index_col=False)
+            y_train = pd.read_csv(y_train_path, index_col=False)
+
+            model_params = {
+                "n_estimators": 120,
+                "max_depth": 50,
+                "max_samples": 100
+            }
+
+            logger.info(f"Model Parameters: {model_params}")
+
+            logger.info(f"Creating rf model")
+            rf = RandomForestClassifier(**model_params)
+
+            logger.info(f"{x_train.head()}")
+            logger.info(f"{y_train.head()}")
+
+            logger.info(f"Fitting data to model")
+            rf.fit(x_train, y_train.values.ravel())
+
+            logger.info(f"Saving model...{rf_path}")
+            joblib.dump(rf, rf_path)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Train model', description='')
+        _parser.add_argument("--x-train", dest="x_train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-train", dest="y_train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--rf", dest="rf_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = train_model(**_parsed_args)
+      image: python:3.8.5
+    inputs:
+      artifacts:
+      - {name: split-train-test-x_train, path: /tmp/inputs/x_train/data}
+      - {name: split-train-test-y_train, path: /tmp/inputs/y_train/data}
+    outputs:
+      artifacts:
+      - {name: train-model-rf, path: /tmp/outputs/rf/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--x-train", {"inputPath": "x_train"}, "--y-train", {"inputPath":
+          "y_train"}, "--rf", {"outputPath": "rf"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' --user) && \"$0\" \"$@\"", "python3",
+          "-u", "-c", "def _make_parent_dirs_and_return_path(file_path: str):\n    import
+          os\n    os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return
+          file_path\n\ndef train_model(x_train_path,\n                y_train_path,\n                rf_path):\n\n    from
+          sklearn.ensemble import RandomForestClassifier\n    import joblib\n    import
+          pandas as pd\n    import logging\n    import numpy as np\n\n    logging.basicConfig(level=logging.INFO)\n    logger
+          = logging.getLogger(__name__)\n    logger.info(\"Starting train_model()\")\n\n    logger.info(\"Reading
+          Data from path\")\n    x_train = pd.read_csv(x_train_path, index_col=False)\n    y_train
+          = pd.read_csv(y_train_path, index_col=False)\n\n    model_params = {\n        \"n_estimators\":
+          120,\n        \"max_depth\": 50,\n        \"max_samples\": 100\n    }\n\n    logger.info(f\"Model
+          Parameters: {model_params}\")\n\n    logger.info(f\"Creating rf model\")\n    rf
+          = RandomForestClassifier(**model_params)\n\n    logger.info(f\"{x_train.head()}\")\n    logger.info(f\"{y_train.head()}\")\n\n    logger.info(f\"Fitting
+          data to model\")\n    rf.fit(x_train, y_train.values.ravel())\n\n    logger.info(f\"Saving
+          model...{rf_path}\")\n    joblib.dump(rf, rf_path)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Train model'', description='''')\n_parser.add_argument(\"--x-train\",
+          dest=\"x_train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-train\",
+          dest=\"y_train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--rf\",
+          dest=\"rf_path\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = train_model(**_parsed_args)\n"], "image": "python:3.8.5"}}, "inputs":
+          [{"name": "x_train", "type": "String"}, {"name": "y_train", "type": "String"}],
+          "name": "Train model", "outputs": [{"name": "rf", "type": "String"}]}',
+        pipelines.kubeflow.org/component_ref: '{}'}
+  - name: validate-model
+    container:
+      args: [--x-test-2, /tmp/inputs/x_test_2/data, --y-test-2, /tmp/inputs/y_test_2/data,
+        --rf, /tmp/inputs/rf/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'scikit-learn==0.23.0' 'pandas==1.2.3' 'numpy==1.19.2' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'scikit-learn==0.23.0'
+        'pandas==1.2.3' 'numpy==1.19.2' --user) && "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        def validate_model(x_test_2_path,
+                           y_test_2_path,
+                           rf_path):
+
+            import joblib
+            import pandas as pd
+            import logging
+            from sklearn.metrics import confusion_matrix
+
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger(__name__)
+            logger.info("Starting validate_model()")
+
+            logger.info(f"Loading model from path {rf_path}")
+            model = joblib.load(rf_path)
+
+            logger.info(f"Loading x_test from path {x_test_2_path}")
+            x_test = pd.read_csv(x_test_2_path, index_col=None)
+
+            logger.info(f"Loading y_test from path {y_test_2_path}")
+            y_test = pd.read_csv(y_test_2_path, index_col=None)
+
+            logger.info("Making a preditions")
+            y_pred = pd.DataFrame(model.predict(x_test))
+
+            logger.info("Creating confusion matrix")
+            cm = confusion_matrix(y_test, y_pred)
+
+            logger.info(f"Confusion Matrix: {cm}")
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Validate model', description='')
+        _parser.add_argument("--x-test-2", dest="x_test_2_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-test-2", dest="y_test_2_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--rf", dest="rf_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = validate_model(**_parsed_args)
+      image: python:3.8.5
+    inputs:
+      artifacts:
+      - {name: train-model-rf, path: /tmp/inputs/rf/data}
+      - {name: split-train-test-x_test, path: /tmp/inputs/x_test_2/data}
+      - {name: split-train-test-y_test, path: /tmp/inputs/y_test_2/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--x-test-2", {"inputPath": "x_test_2"}, "--y-test-2", {"inputPath":
+          "y_test_2"}, "--rf", {"inputPath": "rf"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''scikit-learn==0.23.0''
+          ''pandas==1.2.3'' ''numpy==1.19.2'' --user) && \"$0\" \"$@\"", "python3",
+          "-u", "-c", "def validate_model(x_test_2_path,\n                   y_test_2_path,\n                   rf_path):\n\n    import
+          joblib\n    import pandas as pd\n    import logging\n    from sklearn.metrics
+          import confusion_matrix\n\n    logging.basicConfig(level=logging.INFO)\n    logger
+          = logging.getLogger(__name__)\n    logger.info(\"Starting validate_model()\")\n\n    logger.info(f\"Loading
+          model from path {rf_path}\")\n    model = joblib.load(rf_path)\n\n    logger.info(f\"Loading
+          x_test from path {x_test_2_path}\")\n    x_test = pd.read_csv(x_test_2_path,
+          index_col=None)\n\n    logger.info(f\"Loading y_test from path {y_test_2_path}\")\n    y_test
+          = pd.read_csv(y_test_2_path, index_col=None)\n\n    logger.info(\"Making
+          a preditions\")\n    y_pred = pd.DataFrame(model.predict(x_test))\n\n    logger.info(\"Creating
+          confusion matrix\")\n    cm = confusion_matrix(y_test, y_pred)\n\n    logger.info(f\"Confusion
+          Matrix: {cm}\")\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Validate
+          model'', description='''')\n_parser.add_argument(\"--x-test-2\", dest=\"x_test_2_path\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-test-2\",
+          dest=\"y_test_2_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--rf\",
+          dest=\"rf_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = validate_model(**_parsed_args)\n"],
+          "image": "python:3.8.5"}}, "inputs": [{"name": "x_test_2", "type": "String"},
+          {"name": "y_test_2", "type": "String"}, {"name": "rf", "type": "String"}],
+          "name": "Validate model"}', pipelines.kubeflow.org/component_ref: '{}'}
+  arguments:
+    parameters: []
+  serviceAccountName: pipeline-runner
